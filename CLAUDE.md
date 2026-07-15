@@ -5,6 +5,7 @@
 ## 구조
 
 - `places.csv` — 장소 DB. 컬럼: `이름, 설명, 네이버지도url, 대략적인 위치, 오픈 시간, 주차`
+- `view.html` — `places.csv`를 정렬/검색/위치필터 가능한 표로 보여주는 로컬 뷰어 (브라우저로 직접 열기, 서버 불필요). CSV가 바뀌어도 코드 수정 없이 그대로 반영됨
 - `blog/` — `/place-filter`로 생성된 필터링 결과 markdown 파일들이 저장되는 곳
 - `imgs/` — 이미지 리소스
 - `.claude/skills/` — 커스텀 slash command (아래 참고)

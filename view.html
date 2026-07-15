@@ -1,0 +1,269 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<title>places.csv 보기</title>
+<style>
+  :root {
+    color-scheme: light dark;
+    --bg: #ffffff;
+    --fg: #1a1a1a;
+    --muted: #666666;
+    --border: #e0e0e0;
+    --row-hover: #f5f5f5;
+    --header-bg: #fafafa;
+    --link: #0b5fff;
+    --accent: #0b5fff;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #1e1e1e;
+      --fg: #e8e8e8;
+      --muted: #999999;
+      --border: #3a3a3a;
+      --row-hover: #2a2a2a;
+      --header-bg: #252525;
+      --link: #6ea8ff;
+      --accent: #6ea8ff;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    padding: 24px;
+    font-family: -apple-system, "Apple SD Gothic Neo", "Malgun Gothic", system-ui, sans-serif;
+    background: var(--bg);
+    color: var(--fg);
+  }
+  h1 { font-size: 1.25rem; margin: 0 0 16px; }
+  .controls {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    margin-bottom: 14px;
+    align-items: center;
+  }
+  .controls input[type="text"], .controls select {
+    padding: 7px 10px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background: var(--bg);
+    color: var(--fg);
+    font-size: 0.9rem;
+  }
+  .controls input[type="text"] { min-width: 220px; flex: 1; }
+  .count { font-size: 0.85rem; color: var(--muted); white-space: nowrap; }
+  .table-wrap {
+    overflow-x: auto;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+  }
+  table { border-collapse: collapse; width: 100%; min-width: 640px; }
+  th, td {
+    padding: 9px 12px;
+    text-align: left;
+    border-bottom: 1px solid var(--border);
+    font-size: 0.9rem;
+    vertical-align: top;
+  }
+  th {
+    background: var(--header-bg);
+    cursor: pointer;
+    user-select: none;
+    white-space: nowrap;
+    position: sticky;
+    top: 0;
+  }
+  th .arrow { color: var(--accent); margin-left: 4px; }
+  tbody tr:hover { background: var(--row-hover); }
+  a { color: var(--link); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  .empty-cell { color: var(--muted); }
+  #picker-wrap {
+    display: none;
+    padding: 16px;
+    border: 1px dashed var(--border);
+    border-radius: 8px;
+    margin-bottom: 16px;
+    font-size: 0.9rem;
+  }
+  #status { font-size: 0.85rem; color: var(--muted); margin-bottom: 10px; }
+</style>
+</head>
+<body>
+  <h1>places.csv</h1>
+  <div id="status"></div>
+  <div id="picker-wrap">
+    자동 로드에 실패했습니다 (브라우저가 로컬 파일 fetch를 막는 경우 흔함).
+    <code>places.csv</code> 파일을 직접 선택해주세요:
+    <input type="file" id="file-input" accept=".csv">
+  </div>
+  <div class="controls">
+    <input type="text" id="search" placeholder="검색 (이름/설명/위치/시간/주차)">
+    <select id="location-filter"><option value="">전체 위치</option></select>
+    <span class="count" id="count"></span>
+  </div>
+  <div class="table-wrap">
+    <table>
+      <thead><tr id="head-row"></tr></thead>
+      <tbody id="body"></tbody>
+    </table>
+  </div>
+
+<script>
+const COLUMNS = [
+  { key: "이름", label: "이름" },
+  { key: "설명", label: "설명" },
+  { key: "대략적인 위치", label: "위치" },
+  { key: "오픈 시간", label: "오픈 시간" },
+  { key: "주차", label: "주차" },
+];
+
+let rows = [];
+let sortKey = null;
+let sortDir = 1;
+
+function parseCSV(text) {
+  const rows = [];
+  let row = [], field = "", inQuotes = false;
+  text = text.replace(/\r\n/g, "\n");
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    if (inQuotes) {
+      if (c === '"') {
+        if (text[i + 1] === '"') { field += '"'; i++; }
+        else inQuotes = false;
+      } else field += c;
+    } else {
+      if (c === '"') inQuotes = true;
+      else if (c === ",") { row.push(field); field = ""; }
+      else if (c === "\n") { row.push(field); rows.push(row); row = []; field = ""; }
+      else field += c;
+    }
+  }
+  if (field.length || row.length) { row.push(field); rows.push(row); }
+  return rows.filter(r => r.some(f => f.trim() !== ""));
+}
+
+function toObjects(csvRows) {
+  const header = csvRows[0];
+  return csvRows.slice(1).map(r => {
+    const obj = {};
+    header.forEach((h, i) => { obj[h] = (r[i] || "").trim(); });
+    return obj;
+  });
+}
+
+function render() {
+  const search = document.getElementById("search").value.trim().toLowerCase();
+  const loc = document.getElementById("location-filter").value;
+
+  let filtered = rows.filter(r => {
+    if (loc && r["대략적인 위치"] !== loc) return false;
+    if (!search) return true;
+    return COLUMNS.some(c => (r[c.key] || "").toLowerCase().includes(search));
+  });
+
+  if (sortKey) {
+    filtered = filtered.slice().sort((a, b) => {
+      const av = (a[sortKey] || "").toLowerCase();
+      const bv = (b[sortKey] || "").toLowerCase();
+      return av < bv ? -1 * sortDir : av > bv ? 1 * sortDir : 0;
+    });
+  }
+
+  document.getElementById("count").textContent = `${filtered.length} / ${rows.length}곳`;
+
+  const body = document.getElementById("body");
+  body.innerHTML = "";
+  for (const r of filtered) {
+    const tr = document.createElement("tr");
+    for (const c of COLUMNS) {
+      const td = document.createElement("td");
+      const val = r[c.key] || "";
+      if (c.key === "이름") {
+        if (r["네이버지도url"]) {
+          const a = document.createElement("a");
+          a.href = r["네이버지도url"];
+          a.target = "_blank";
+          a.rel = "noopener";
+          a.textContent = val || r["네이버지도url"];
+          td.appendChild(a);
+        } else {
+          td.textContent = val;
+        }
+      } else if (val === "") {
+        td.textContent = "";
+        td.className = "empty-cell";
+      } else {
+        td.textContent = val;
+      }
+      tr.appendChild(td);
+    }
+    body.appendChild(tr);
+  }
+}
+
+function renderHead() {
+  const headRow = document.getElementById("head-row");
+  headRow.innerHTML = "";
+  for (const c of COLUMNS) {
+    const th = document.createElement("th");
+    th.textContent = c.label;
+    if (sortKey === c.key) {
+      const arrow = document.createElement("span");
+      arrow.className = "arrow";
+      arrow.textContent = sortDir === 1 ? "▲" : "▼";
+      th.appendChild(arrow);
+    }
+    th.addEventListener("click", () => {
+      if (sortKey === c.key) sortDir *= -1;
+      else { sortKey = c.key; sortDir = 1; }
+      renderHead();
+      render();
+    });
+    headRow.appendChild(th);
+  }
+}
+
+function populateLocationFilter() {
+  const select = document.getElementById("location-filter");
+  const locs = [...new Set(rows.map(r => r["대략적인 위치"]).filter(Boolean))].sort();
+  for (const l of locs) {
+    const opt = document.createElement("option");
+    opt.value = l;
+    opt.textContent = l;
+    select.appendChild(opt);
+  }
+}
+
+function load(text) {
+  rows = toObjects(parseCSV(text));
+  document.getElementById("status").textContent = "";
+  document.getElementById("picker-wrap").style.display = "none";
+  populateLocationFilter();
+  renderHead();
+  render();
+}
+
+document.getElementById("search").addEventListener("input", render);
+document.getElementById("location-filter").addEventListener("change", render);
+document.getElementById("file-input").addEventListener("change", (e) => {
+  const file = e.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = () => load(reader.result);
+  reader.readAsText(file);
+});
+
+document.getElementById("status").textContent = "places.csv 불러오는 중...";
+fetch("places.csv")
+  .then(r => { if (!r.ok) throw new Error(); return r.text(); })
+  .then(load)
+  .catch(() => {
+    document.getElementById("status").textContent = "";
+    document.getElementById("picker-wrap").style.display = "block";
+  });
+</script>
+</body>
+</html>
